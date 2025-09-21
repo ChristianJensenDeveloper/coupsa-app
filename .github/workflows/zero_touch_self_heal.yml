@@ -1,0 +1,142 @@
+name: Zero-Touch Self-Heal + Redeploy
+
+on:
+  push:
+    branches: [ main ]         # auto-run on any new push
+  schedule:
+    - cron: "*/15 * * * *"     # ALSO run every 15 minutes (hands-off)
+  workflow_dispatch:            # optional: run manually from Actions
+
+permissions:
+  contents: write
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      # 1) Remove any extra package.json files (keep only the root one)
+      - name: Remove stray package.json files outside repo root
+        shell: bash
+        run: |
+          set -e
+          for f in $(find . -type f -name "package.json" ! -path "./package.json"); do
+            echo "Deleting stray $f"
+            git rm -f "$f" || true
+          done
+
+      # 2) Replace any jsr: imports with npm equivalents
+      - name: Replace jsr imports
+        shell: bash
+        run: |
+          set -e
+          # fix most common Supabase JSR import
+          files=$(grep -RIl --exclude-dir=.git 'jsr:@supabase/supabase-js' || true)
+          if [ -n "$files" ]; then
+            echo "$files" | while read -r f; do
+              echo "Fixing $f"
+              sed -i 's#jsr:@supabase/supabase-js[^"]*#@supabase/supabase-js#g' "$f"
+            done
+          fi
+          # comment any other jsr: to surface remaining files without breaking sed
+          others=$(grep -RIl --exclude-dir=.git 'jsr:' || true)
+          if [ -n "$others" ]; then
+            echo "::warning::Other jsr: imports found; commenting them for now."
+            echo "$others" | while read -r f; do
+              sed -i 's#jsr:#// jsr: (removed) #g' "$f"
+            done
+          fi
+
+      # 3) Ensure a clean root package.json (vite/react + supabase)
+      - name: Write clean root package.json
+        shell: bash
+        run: |
+          cat > package.json <<'JSON'
+          {
+            "name": "coupsa-app",
+            "version": "1.0.0",
+            "private": true,
+            "type": "module",
+            "engines": { "node": "20.x" },
+            "scripts": {
+              "dev": "vite",
+              "build": "vite build",
+              "preview": "vite preview --port 3000"
+            },
+            "dependencies": {
+              "@supabase/supabase-js": "^2.45.0",
+              "react": "^18.2.0",
+              "react-dom": "^18.2.0",
+              "@types/node": "^20.0.0",
+              "@types/react": "^18.2.0",
+              "@types/react-dom": "^18.2.0",
+              "@radix-ui/react-alert-dialog": "^1.0.5",
+              "@radix-ui/react-dialog": "^1.0.5",
+              "@radix-ui/react-dropdown-menu": "^2.0.6",
+              "@radix-ui/react-popover": "^1.0.7",
+              "@radix-ui/react-select": "^2.0.0",
+              "@radix-ui/react-separator": "^1.0.3",
+              "@radix-ui/react-slot": "^1.0.2",
+              "@radix-ui/react-switch": "^1.0.3",
+              "@radix-ui/react-tabs": "^1.0.4",
+              "@radix-ui/react-tooltip": "^1.0.7",
+              "class-variance-authority": "^0.7.0",
+              "lucide-react": "^0.263.1",
+              "sonner": "^1.4.3",
+              "tailwind-merge": "^1.14.0",
+              "xlsx": "^0.20.0"
+            },
+            "devDependencies": {
+              "typescript": "^5.4.0",
+              "@vitejs/plugin-react": "^4.2.1",
+              "vite": "^5.2.0",
+              "eslint": "^8.57.0",
+              "eslint-plugin-react": "^7.34.0"
+            }
+          }
+          JSON
+
+      # 4) Ensure vite.config.ts exists
+      - name: Ensure vite.config.ts
+        shell: bash
+        run: |
+          cat > vite.config.ts <<'TS'
+          import { defineConfig } from 'vite'
+          import react from '@vitejs/plugin-react'
+          export default defineConfig({
+            plugins: [react()],
+          })
+          TS
+
+      # 5) Nuke stale lockfiles that may keep bad deps
+      - name: Remove lockfiles
+        shell: bash
+        run: |
+          git rm -f package-lock.json pnpm-lock.yaml yarn.lock 2>/dev/null || true
+          rm -f package-lock.json pnpm-lock.yaml yarn.lock || true
+
+      # 6) Commit any changes (if any) and push to main
+      - name: Commit & push if changed
+        shell: bash
+        run: |
+          git config user.name  "autofix-bot"
+          git config user.email "autofix-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Self-heal: remove jsr imports, clean pkg, drop lockfiles"
+            git push origin HEAD:main
+          fi
+
+      # 7) Optional: trigger Vercel redeploy (so you don't click anything)
+      - name: Trigger Vercel deploy (optional)
+        if: env.VERCEL_DEPLOY_HOOK_URL != ''
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          echo "Triggering Vercel deploy hook"
+          curl -fsSL -X POST "$VERCEL_DEPLOY_HOOK_URL" || true
