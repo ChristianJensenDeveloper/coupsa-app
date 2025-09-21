@@ -2,10 +2,10 @@ name: Zero-Touch Self-Heal + Redeploy
 
 on:
   push:
-    branches: [ main ]         # auto-run on any new push
+    branches: [ main ]           # auto-run on every push to main
   schedule:
-    - cron: "*/15 * * * *"     # ALSO run every 15 minutes (hands-off)
-  workflow_dispatch:            # optional: run manually from Actions
+    - cron: "*/15 * * * *"       # also run every 15 minutes
+  workflow_dispatch:              # allow manual run
 
 permissions:
   contents: write
@@ -16,44 +16,56 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
 
       # 1) Remove any extra package.json files (keep only the root one)
       - name: Remove stray package.json files outside repo root
         shell: bash
         run: |
-          set -e
-          for f in $(find . -type f -name "package.json" ! -path "./package.json"); do
-            echo "Deleting stray $f"
-            git rm -f "$f" || true
-          done
+          set -euo pipefail
+          ROOT="./package.json"
+          mapfile -t PKGS < <(find . -type f -name "package.json" ! -path "$ROOT" || true)
+          if (( ${#PKGS[@]} )); then
+            for f in "${PKGS[@]}"; do
+              echo "Deleting stray $f"
+              git rm -f "$f" || true
+            done
+          else
+            echo "No stray package.json files."
+          fi
 
       # 2) Replace any jsr: imports with npm equivalents
-      - name: Replace jsr imports
+      - name: Replace jsr imports (supabase) and comment unknown jsr
         shell: bash
         run: |
-          set -e
-          # fix most common Supabase JSR import
-          files=$(grep -RIl --exclude-dir=.git 'jsr:@supabase/supabase-js' || true)
-          if [ -n "$files" ]; then
-            echo "$files" | while read -r f; do
+          set -euo pipefail
+          # Fix common Supabase JSR import
+          mapfile -t SUPA < <(grep -RIl 'jsr:@supabase/supabase-js' --exclude-dir=.git || true)
+          if (( ${#SUPA[@]} )); then
+            for f in "${SUPA[@]}"; do
               echo "Fixing $f"
               sed -i 's#jsr:@supabase/supabase-js[^"]*#@supabase/supabase-js#g' "$f"
             done
+          else
+            echo "No jsr:@supabase/supabase-js imports found."
           fi
-          # comment any other jsr: to surface remaining files without breaking sed
-          others=$(grep -RIl --exclude-dir=.git 'jsr:' || true)
-          if [ -n "$others" ]; then
+          # Comment any remaining jsr: references so build surfaces the file clearly
+          mapfile -t OTHER < <(grep -RIl 'jsr:' --exclude-dir=.git || true)
+          if (( ${#OTHER[@]} )); then
             echo "::warning::Other jsr: imports found; commenting them for now."
-            echo "$others" | while read -r f; do
+            for f in "${OTHER[@]}"; do
               sed -i 's#jsr:#// jsr: (removed) #g' "$f"
             done
+          else
+            echo "No other jsr: imports."
           fi
 
       # 3) Ensure a clean root package.json (vite/react + supabase)
       - name: Write clean root package.json
         shell: bash
         run: |
+          set -euo pipefail
           cat > package.json <<'JSON'
           {
             "name": "coupsa-app",
@@ -98,11 +110,13 @@ jobs:
             }
           }
           JSON
+          echo "Wrote clean package.json"
 
       # 4) Ensure vite.config.ts exists
       - name: Ensure vite.config.ts
         shell: bash
         run: |
+          set -euo pipefail
           cat > vite.config.ts <<'TS'
           import { defineConfig } from 'vite'
           import react from '@vitejs/plugin-react'
@@ -110,18 +124,22 @@ jobs:
             plugins: [react()],
           })
           TS
+          echo "Ensured vite.config.ts"
 
-      # 5) Nuke stale lockfiles that may keep bad deps
+      # 5) Remove lockfiles that can preserve bad deps
       - name: Remove lockfiles
         shell: bash
         run: |
+          set -euo pipefail
           git rm -f package-lock.json pnpm-lock.yaml yarn.lock 2>/dev/null || true
           rm -f package-lock.json pnpm-lock.yaml yarn.lock || true
+          echo "Lockfiles removed (if any)."
 
-      # 6) Commit any changes (if any) and push to main
+      # 6) Commit & push only if something changed
       - name: Commit & push if changed
         shell: bash
         run: |
+          set -euo pipefail
           git config user.name  "autofix-bot"
           git config user.email "autofix-bot@users.noreply.github.com"
           git add -A
@@ -132,11 +150,12 @@ jobs:
             git push origin HEAD:main
           fi
 
-      # 7) Optional: trigger Vercel redeploy (so you don't click anything)
+      # 7) Optional: trigger Vercel redeploy (so you do nothing)
       - name: Trigger Vercel deploy (optional)
         if: env.VERCEL_DEPLOY_HOOK_URL != ''
         env:
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
+          set -euo pipefail
           echo "Triggering Vercel deploy hook"
           curl -fsSL -X POST "$VERCEL_DEPLOY_HOOK_URL" || true
