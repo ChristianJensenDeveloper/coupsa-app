@@ -1,7 +1,9 @@
 name: AutoFix JSR & Cleanup
 
 on:
-  workflow_dispatch:   # 👈 this line makes the "Run workflow" button appear
+  workflow_dispatch:            # lets you run it manually from Actions
+  push:
+    branches: [ main ]          # auto-run on every push to main
 
 permissions:
   contents: write
@@ -11,45 +13,50 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Remove stray package.json files outside root
+      - name: Remove stray package.json files outside repo root
+        shell: bash
         run: |
           set -e
-          ROOT_PKG="package.json"
           # list every package.json except the root one
-          find . -name package.json -not -path "./${ROOT_PKG}" -not -path "./${ROOT_PKG}" -not -path "./package.json" | while read -r f; do
-            if [ "$f" != "./package.json" ]; then
-              echo "Deleting stray $f"
-              git rm -f "$f" || true
-            fi
+          for f in $(find . -type f -name "package.json" ! -path "./package.json"); do
+            echo "Deleting stray $f"
+            git rm -f "$f" || true
           done
 
-      - name: Remove lockfiles (avoid stale deps)
+      - name: Remove lockfiles (avoid stale/bad deps)
+        shell: bash
         run: |
           rm -f package-lock.json pnpm-lock.yaml yarn.lock || true
           git rm -f package-lock.json pnpm-lock.yaml yarn.lock 2>/dev/null || true
 
-      - name: Replace jsr: imports with npm imports
+      - name: Replace any jsr: imports with npm equivalents
+        shell: bash
         run: |
           set -e
-          # Replace jsr:@supabase/supabase-js*@* -> @supabase/supabase-js
-          grep -RIl --exclude-dir=.git 'jsr:@supabase/supabase-js' || true
-          grep -RIl --exclude-dir=.git 'jsr:@supabase/supabase-js' | while read -r f; do
-            echo "Fixing $f"
-            sed -i 's#jsr:@supabase/supabase-js[^"]*#@supabase/supabase-js#g' "$f"
-          done
-          # Generic safety pass for any other jsr: imports (comment them so build fails loudly if unknown)
-          if grep -RIl --exclude-dir=.git 'jsr:' | grep -v '^$' >/dev/null 2>&1; then
-            echo "::warning::Found other jsr: imports. Commenting them for now."
-            grep -RIl --exclude-dir=.git 'jsr:' | while read -r f; do
+          # Fix common Supabase JSR import
+          files=$(grep -RIl --exclude-dir=.git 'jsr:@supabase/supabase-js' || true)
+          if [ -n "$files" ]; then
+            echo "$files" | while read -r f; do
+              echo "Fixing $f"
+              sed -i 's#jsr:@supabase/supabase-js[^"]*#@supabase/supabase-js#g' "$f"
+            done
+          fi
+          # Safety: comment any remaining jsr: references so the build shows the file clearly
+          other=$(grep -RIl --exclude-dir=.git 'jsr:' || true)
+          if [ -n "$other" ]; then
+            echo "::warning::Found other jsr: imports. Commenting them (search for \"jsr: (removed)\" if build fails)."
+            echo "$other" | while read -r f; do
               sed -i 's#jsr:#// jsr: (removed) #g' "$f"
             done
           fi
 
       - name: Write clean root package.json
+        shell: bash
         run: |
           cat > package.json <<'JSON'
           {
@@ -97,8 +104,8 @@ jobs:
           JSON
 
       - name: Ensure vite.config.ts exists
+        shell: bash
         run: |
-          mkdir -p .
           cat > vite.config.ts <<'TS'
           import { defineConfig } from 'vite'
           import react from '@vitejs/plugin-react'
@@ -107,7 +114,8 @@ jobs:
           })
           TS
 
-      - name: Commit and push to main
+      - name: Commit and push to main (if changed)
+        shell: bash
         run: |
           set -e
           git config user.name "autofix-bot"
@@ -120,11 +128,10 @@ jobs:
             git push origin HEAD:main
           fi
 
-      # OPTIONAL: trigger Vercel redeploy via a Deploy Hook
+      # OPTIONAL: trigger Vercel redeploy via a Deploy Hook secret
       - name: Trigger Vercel Deploy (optional)
         if: env.VERCEL_DEPLOY_HOOK_URL != ''
         env:
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
-          echo "Triggering Vercel deploy hook"
           curl -s -X POST "$VERCEL_DEPLOY_HOOK_URL" || true
