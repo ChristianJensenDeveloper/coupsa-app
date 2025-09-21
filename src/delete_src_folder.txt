@@ -1,0 +1,13 @@
+The /src/ folder needs to be deleted entirely as it contains duplicate files that conflict with the working root-level structure.
+
+Files to delete:
+- /src/App.tsx (duplicate)  
+- /src/main.tsx (duplicate)
+- /src/styles/globals.css (duplicate)
+- /src/ (entire folder)
+
+The working structure is:
+✅ /App.tsx (root level - contains all working imports)
+✅ /main.tsx (root level - entry point)  
+✅ /styles/globals.css (root level)
+✅ /index.html (correctly points to /main.tsx)
