@@ -1,0 +1,24 @@
+User-agent: *
+Allow: /
+
+# Block admin and testing URLs
+Disallow: /admin
+Disallow: /test
+Disallow: /debug
+Disallow: /api/internal
+
+# Allow important pages
+Allow: /
+Allow: /about
+Allow: /giveaways
+Allow: /faq
+Allow: /contact
+Allow: /terms
+Allow: /privacy
+Allow: /partners
+
+# Sitemap location
+Sitemap: https://koocao.com/sitemap.xml
+
+# Crawl delay to be respectful
+Crawl-delay: 1

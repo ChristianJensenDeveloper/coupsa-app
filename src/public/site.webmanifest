@@ -1,0 +1,58 @@
+{
+  "name": "KOOCAO - Prop Trading Deals",
+  "short_name": "KOOCAO",
+  "description": "Save money on prop trading challenges with exclusive deals from top firms",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#3b82f6",
+  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["finance", "business", "lifestyle"],
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Browse Deals",
+      "short_name": "Deals",
+      "description": "Browse the latest prop trading deals",
+      "url": "/",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    },
+    {
+      "name": "My Saved Deals",
+      "short_name": "My Deals",
+      "description": "View your saved deals",
+      "url": "/my-deals",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    },
+    {
+      "name": "Giveaways",
+      "short_name": "Giveaways",
+      "description": "Enter trading giveaways",
+      "url": "/giveaways",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    }
+  ]
+}
